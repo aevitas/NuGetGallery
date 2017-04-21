@@ -14,7 +14,7 @@ This project has adopted the [Microsoft Open Source Code of Conduct](https://ope
     1. Visual Studio 2017 - Do a Custom install that includes the following components:
         * Windows SDK - Used to generate a self-signed certificate for local testing.
         * Microsoft SQL Server Data Tools - Used to provide the LocalDB that Windows Azure SDK requires.
-    2. PowerShell 3.0
+    2. PowerShell 4.0
     3. [NuGet](http://docs.nuget.org/docs/start-here/installing-nuget)
     4. [Windows Azure SDK](http://www.microsoft.com/windowsazure/sdk/)
 2. Clone it!

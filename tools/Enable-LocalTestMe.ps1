@@ -1,4 +1,4 @@
-param([string]$Subdomain="nuget", [string]$SiteName = "NuGet Gallery", [string]$SitePhysicalPath, [string]$MakeCertPath, [string]$AppCmdPath)
+param([string]$Subdomain="nuget", [string]$SiteName = "NuGet Gallery", [string]$SitePhysicalPath, [string]$AppCmdPath)
 
 function Get-SiteFQDN() {return "$Subdomain.localtest.me"}
 function Get-SiteHttpHost() {return "$(Get-SiteFQDN):80"}
@@ -9,45 +9,21 @@ function Get-SiteCertificate([string] $Store, [switch] $UseLocalMachine) {
     return @(dir -l "Cert:\$level\$Store" | where {$_.Subject -eq "CN=$(Get-SiteFQDN)"})
 }
 
-function Find-MakeCert() {
-    # Find Windows SDK
-    $SDKVersion = dir 'HKLM:\SOFTWARE\Wow6432Node\Microsoft\Microsoft SDKs\Windows' | 
-        where { $_.PSChildName -match "v(?<ver>\d+\.\d+)" } | 
-        foreach { New-Object System.Version $($matches["ver"]) } |
-        sort -desc |
-        select -first 1
-    if(!$SDKVersion) {
-        throw "Could not find Windows SDK. Please install the Windows SDK before running this script, or use -MakeCertPath to specify the path to makecert.exe"
-    }
-    $SDKRegKey = (Get-ItemProperty "HKLM:\SOFTWARE\Wow6432Node\Microsoft\Microsoft SDKs\Windows\v$SDKVersion" -ErrorAction SilentlyContinue)
-	if ($SDKRegKey -eq $null) {
-	    $SDKRegKey = (Get-ItemProperty "HKLM:\SOFTWARE\Wow6432Node\Microsoft\Microsoft SDKs\Windows\v$SDKVersion`A" -ErrorAction SilentlyContinue)
-	}
-    $WinSDKDir = $SDKRegKey.InstallationFolder
-    $xArch = "x86"
-    if($env:PROCESSOR_ARCHITECTURE -eq "AMD64") {
-        $xArch = "x64"
-    }
-
-    [string] $candidatePath = Join-Path $WinSDKDir "bin\$xArch\makecert.exe"
-    
-    # If registry scan finds wrong path, try the Azure extension's makecert
-    if(!(Test-Path $candidatePath)) {
-        if($xArch = "x64"){
-            $candidatePath = "${env:ProgramFiles(x86)}/Microsoft Visual Studio 14.0\Common7\IDE\Extensions\Microsoft\Microsoft Azure Data Lake Tools for Visual Studio 2015\2.0.6000.0\CppSDK\SDK\bin\makecert.exe"
-        } else {
-            $candidatePath = "${env:ProgramFiles}/Microsoft Visual Studio 14.0\Common7\IDE\Extensions\Microsoft\Microsoft Azure Data Lake Tools for Visual Studio 2015\2.0.6000.0\CppSDK\SDK\bin\makecert.exe"
-        }
-    }
-
-    return $candidatePath
-}
-
 function Initialize-SiteCertificate() {
     Write-Host "Generating a Self-Signed SSL Certificate for $(Get-SiteFQDN)"
-    & $MakeCertPath -r -pe -n "CN=$Subdomain.localtest.me" -b "`"$([DateTime]::Now.ToString("MM\/dd\/yyy"))`"" -e "`"$([DateTime]::Now.AddYears(10).ToString("MM\/dd\/yyy"))`"" -eku '1.3.6.1.5.5.7.3.1' -ss root -sr localMachine -sky exchange -sp "Microsoft RSA SChannel Cryptographic Provider" -sy 12
 
-    [object] $cert = Get-SiteCertificate -Store 'Root' -UseLocalMachine
+    # Create a new self-signed certificate. New-SelfSignedCertificate can only create
+    # certificates into the My certificate store.
+    $myCert = New-SelfSignedCertificate -DnsName $(Get-SiteFQDN) -CertStoreLocation "Cert:\LocalMachine\My"
+    
+    # Move the newly created self-signed certificate to the Root store.
+    $rootStore = New-Object System.Security.Cryptography.X509Certificates.X509Store("Root", "LocalMachine")
+    $rootStore.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+    $rootStore.Add($myCert)
+    $rootStore.Close()
+
+    $cert = Get-SiteCertificate "Root" -UseLocalMachine
+
     if($cert -eq $null) {
         throw "Failed to create an SSL Certificate"
     }
@@ -87,15 +63,6 @@ $SitePhysicalPath = Convert-Path $SitePhysicalPath
 $siteCert = Get-SiteCertificate -Store 'Root'
 if($siteCert.Length -eq 0) {
     $siteCert = Get-SiteCertificate -Store 'Root' -UseLocalMachine
-    if($siteCert.Length -eq 0) {
-        Write-Host $MakeCertPath
-        if(!$MakeCertPath) { $MakeCertPath = Find-MakeCert }
-        Write-Host $MakeCertPath
-
-        if(!(Test-Path $MakeCertPath)) {
-            throw "Could not find makecert.exe in $MakeCertPath!"
-        }
-    }
 }
 
 # Find IIS Express
@@ -136,7 +103,7 @@ if($sites.Length -gt 0) {
 
 if ($siteCert -eq $null) { 
     # Generate one
-    $siteCert = Initialize-SiteCertificate 
+    $siteCert = Initialize-SiteCertificate
 }
 
 Write-Host "Using SSL Certificate: $($siteCert.Thumbprint)"
