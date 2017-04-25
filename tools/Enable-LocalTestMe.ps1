@@ -1,12 +1,11 @@
-param([string]$Subdomain="nuget", [string]$SiteName = "NuGet Gallery", [string]$SitePhysicalPath, [string]$AppCmdPath)
+param([string]$SiteName = "NuGet Gallery", [string]$SitePhysicalPath, [string]$AppCmdPath)
 
-function Get-SiteFQDN() {return "$Subdomain.localtest.me"}
+function Get-SiteFQDN() {return "localhost"}
 function Get-SiteHttpHost() {return "$(Get-SiteFQDN):80"}
 function Get-SiteHttpsHost() {return "$(Get-SiteFQDN):443"}
 
-function Get-SiteCertificate([string] $Store, [switch] $UseLocalMachine) {
-    [string] $level = if($UseLocalMachine) {'LocalMachine'} else {'CurrentUser'}
-    return @(dir -l "Cert:\$level\$Store" | where {$_.Subject -eq "CN=$(Get-SiteFQDN)"})
+function Get-SiteCertificate() {
+    return @(dir -l "Cert:\LocalMachine\Root" | where {$_.Subject -eq "CN=$(Get-SiteFQDN)"})
 }
 
 function Initialize-SiteCertificate() {
@@ -22,7 +21,7 @@ function Initialize-SiteCertificate() {
     $rootStore.Add($myCert)
     $rootStore.Close()
 
-    $cert = Get-SiteCertificate "Root" -UseLocalMachine
+    $cert = Get-SiteCertificate
 
     if($cert -eq $null) {
         throw "Failed to create an SSL Certificate"
@@ -33,7 +32,7 @@ function Initialize-SiteCertificate() {
 
 function Invoke-Netsh() {
     $argStr = $([String]::Join(" ", $args))
-    Write-Verbose "netsh $argStr"
+    Write-Host "netsh $argStr"
     $result = netsh @args
     $parsed = [Regex]::Match($result, ".*Error: (\d+).*")
     if($parsed.Success) {
@@ -58,12 +57,6 @@ if(!(Test-Path $SitePhysicalPath)) {
     throw "Could not find site at $SitePhysicalPath. Use -SitePhysicalPath argument to specify the path."
 }
 $SitePhysicalPath = Convert-Path $SitePhysicalPath
-
-# Check for a cert
-$siteCert = Get-SiteCertificate -Store 'Root'
-if($siteCert.Length -eq 0) {
-    $siteCert = Get-SiteCertificate -Store 'Root' -UseLocalMachine
-}
 
 # Find IIS Express
 if(!$AppCmdPath) {
@@ -92,7 +85,7 @@ Invoke-Netsh http add urlacl "url=http://$(Get-SiteHttpHost)/" "sddl=D:(A;;GX;;;
 Invoke-Netsh http add urlacl "url=https://$(Get-SiteHttpsHost)/" "sddl=D:(A;;GX;;;S-1-1-0)"
 
 $SiteFullName = "$SiteName ($(Get-SiteFQDN))"
-echo $AppCmdPath list site $SiteFullName
+Write-Host "$AppCmdPath list site $SiteFullName"
 $sites = @(&$AppCmdPath list site $SiteFullName)
 if($sites.Length -gt 0) {
     Write-Warning "Site '$SiteFullName' already exists. Deleting and recreating."
@@ -101,8 +94,12 @@ if($sites.Length -gt 0) {
 
 &$AppCmdPath add site /name:"$SiteFullName" /bindings:"http://$(Get-SiteHttpHost),https://$(Get-SiteHttpsHost)" /physicalPath:$SitePhysicalPath
 
+# Ensure a certificate is bound to localhost's port 443
+$siteCert = Get-SiteCertificate
+
 if ($siteCert -eq $null) { 
-    # Generate one
+    Write-Host "Generating SSL Certificate"
+
     $siteCert = Initialize-SiteCertificate
 }
 
