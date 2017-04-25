@@ -21,6 +21,7 @@ function Initialize-SiteCertificate() {
     $rootStore.Add($myCert)
     $rootStore.Close()
 
+    # Return the self-signed certificate from the Root store.
     $cert = Get-SiteCertificate
 
     if($cert -eq $null) {
@@ -32,9 +33,9 @@ function Initialize-SiteCertificate() {
 
 function Invoke-Netsh() {
     $argStr = $([String]::Join(" ", $args))
-    Write-Host "netsh $argStr"
     $result = netsh @args
     $parsed = [Regex]::Match($result, ".*Error: (\d+).*")
+
     if($parsed.Success) {
         $err = $parsed.Groups[1].Value
         if($err -ne "183") {
@@ -49,8 +50,10 @@ if(!(([Security.Principal.WindowsPrincipal]([System.Security.Principal.WindowsId
     throw "This script must be run as an admin."
 }
 
+Write-Host "[BEGIN] Setting up IIS Express" -ForegroundColor Cyan
+
+$ScriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 if(!$SitePhysicalPath) {
-    $ScriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path;
     $SitePhysicalPath = Join-Path $ScriptRoot "..\src\NuGetGallery"
 }
 if(!(Test-Path $SitePhysicalPath)) {
@@ -85,7 +88,7 @@ Invoke-Netsh http add urlacl "url=http://$(Get-SiteHttpHost)/" "sddl=D:(A;;GX;;;
 Invoke-Netsh http add urlacl "url=https://$(Get-SiteHttpsHost)/" "sddl=D:(A;;GX;;;S-1-1-0)"
 
 $SiteFullName = "$SiteName ($(Get-SiteFQDN))"
-Write-Host "$AppCmdPath list site $SiteFullName"
+
 $sites = @(&$AppCmdPath list site $SiteFullName)
 if($sites.Length -gt 0) {
     Write-Warning "Site '$SiteFullName' already exists. Deleting and recreating."
@@ -94,18 +97,24 @@ if($sites.Length -gt 0) {
 
 &$AppCmdPath add site /name:"$SiteFullName" /bindings:"http://$(Get-SiteHttpHost),https://$(Get-SiteHttpsHost)" /physicalPath:$SitePhysicalPath
 
-# Ensure a certificate is bound to localhost's port 443
+Write-Host "[DONE] Setting up IIS Express" -ForegroundColor Cyan
+Write-Host "[BEGIN] Setting SSL Certificate" -ForegroundColor Cyan
+
+# Ensure a certificate is bound to localhost's port 443. Generate a new
+# self-signed certificate if necessary.
 $siteCert = Get-SiteCertificate
 
 if ($siteCert -eq $null) { 
-    Write-Host "Generating SSL Certificate"
-
     $siteCert = Initialize-SiteCertificate
 }
 
 Write-Host "Using SSL Certificate: $($siteCert.Thumbprint)"
 
-# Set the Certificate
 Invoke-Netsh http add sslcert hostnameport="$(Get-SiteHttpsHost)" certhash="$($siteCert.Thumbprint)" certstorename=Root appid="{$([Guid]::NewGuid().ToString())}"
 
-Write-Host "Ready! All you have to do now is go to your website project properties and set 'http://$(Get-SiteFQDN)' as your Project URL!"
+Write-Host "[DONE] Setting SSL Certificate" -ForegroundColor Cyan
+Write-Host "[BEGIN] Running Migrations" -ForegroundColor Cyan
+
+& "$ScriptRoot\Update-Databases.ps1" -MigrationTargets NugetGallery,NugetGallerySupportRequest -NugetGallerySitePath $SitePhysicalPath
+
+Write-Host "[DONE] Running Migrations" -ForegroundColor Cyan
