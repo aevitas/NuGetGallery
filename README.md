@@ -27,8 +27,7 @@ This project has adopted the [Microsoft Open Source Code of Conduct](https://ope
 4. Set up the website!
 
     ```PS C:\Code\NuGetGallery> .\tools\Setup-DevEnvironment.ps1```
-5. Ensure the `NugetGallery` project (under the `Frontend` folder) is the StartUp Project.
-6. That's it! You should now be able to press the `F5` key to run the site!
+5. Ensure the `NugetGallery` project is the StartUp Project and press `F5` to run the site! That's it!
 
 When working with the gallery, e-mail messages are saved to the file system (under `~/App_Data`).
 You can use an SMTP server instead by editing `src\NuGetGallery\Web.Config` and adding a `Gallery.SmtpUri`
@@ -36,7 +35,7 @@ setting. Its value should be an SMTP connection string, such as: `smtp://user:pa
 You can also turn off e-email confirmations by changing the value of `Gallery.ConfirmEmailAddresses` to `false`
 in the `src\NugetGallery\Web.Config` file.
 
-Visual Studio modifies the `applicationhost.config` file. You can force git to ignore changes to this file
+Visual Studio may modify the `applicationhost.config` file. You can force git to ignore changes to this file
 with:
 
     git update-index --assume-unchanged .vs/config/applicationhost.config
@@ -45,7 +44,7 @@ You can undo this with this command with:
 
     git update-index --no-assume-unchanged .vs/config/applicationhost.config
 
-This should help to prevent unwanted file commits.
+This should help prevent unwanted file commits.
     
 ## Contribute
 If you find a bug with the gallery, please visit the [Issue tracker](https://github.com/NuGet/NuGetGallery/issues) and 
